@@ -3,5 +3,5 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  base: '/pellitone/', // ← must match your GitHub repo name exactly
+  base: '/Pellitone/', // ← capital P to match your repo name exactly
 })
