@@ -2,7 +2,7 @@
   "name": "pellitone",
   "private": true,
   "version": "1.0.0",
-  "homepage": "https://YOUR_GITHUB_USERNAME.github.io/pellitone",
+  "homepage": "https://klwn911.github.io/Pellitone",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
