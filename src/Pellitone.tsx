@@ -5,6 +5,7 @@
  *   • Demo camera: low grazing angle [0,14,32] fov 55 (was top-down [0,52,3]).
  *   • FpsMonitor: targetFps 50→30, sustainMs 1000→300 (overlay clears faster).
  *   • DEMO_SETTINGS auraOpacity: 1.5 → 0.70 (70% glow opacity).
+ *   • Fixed TS18047 null checks on canvas ref in GooeyCanvas draw loop.
  * -----------------------------------------------------------------------
  */
 
@@ -210,7 +211,7 @@ interface Settings {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DEFAULT_SETTINGS  — what "Reset to Defaults" restores  (non-demo)
+// DEFAULT_SETTINGS
 // ─────────────────────────────────────────────────────────────────────────────
 
 const DEFAULT_SETTINGS: Settings = {
@@ -269,7 +270,7 @@ const DEFAULT_SETTINGS: Settings = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DEMO_SETTINGS  — active on first load, re-applied by Demo button
+// DEMO_SETTINGS
 // ─────────────────────────────────────────────────────────────────────────────
 
 const DEMO_SETTINGS: Settings = {
@@ -294,7 +295,6 @@ const DEMO_SETTINGS: Settings = {
   trailLength: 8,
   trailDecay: 0.3,
   trailPulseSpeed: 0.8,
-  // Heatmap
   heatmapEnabled: true,
   heatBlendMode: 'screen',
   heatPeakThreshold: 0.0,
@@ -309,13 +309,12 @@ const DEMO_SETTINGS: Settings = {
   heatValleyOpacity: 0.75,
   heatValleyBlobSize: 2.5,
   heatValleyBlur: 0,
-  // Aura
   auraEnabled: true,
   auraThemeIndex: 1,
   auraBlur: 35,
   auraLiquidity: 83,
   auraBlobSize: 1.7,
-  auraOpacity: 0.70,   // ← changed from 1.5 to 0.70 (70%)
+  auraOpacity: 0.70,
   auraDotsVisible: true,
   auraBlendMode: 'hard-light',
   auraEdgeFade: 0.0,
@@ -363,8 +362,6 @@ const MAX_GRID = 96;
 
 const DEMO_CAMERA_POSITION: [number, number, number] = [0, 14, 32];
 const DEMO_CAMERA_FOV = 55;
-
-// Default (non-demo) camera keeps the original top-down feel
 const DEFAULT_CAMERA_POSITION: [number, number, number] = [0, 52, 3];
 const DEFAULT_CAMERA_FOV = 45;
 
@@ -453,7 +450,8 @@ function buildTextTexture(char: string): THREE.CanvasTexture {
   const sz = 128,
     c = document.createElement('canvas');
   c.width = c.height = sz;
-  const ctx = c.getContext('2d')!;
+  const ctx = c.getContext('2d');
+  if (!ctx) return new THREE.CanvasTexture(c);
   ctx.fillStyle = '#fff';
   ctx.font = `bold ${Math.round(sz * 0.78)}px serif`;
   ctx.textAlign = 'center';
@@ -509,14 +507,13 @@ function buildMaterial(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FPS monitor — signals when rendering has settled
-// targetFps lowered to 30, sustainMs cut to 300 so overlay clears faster
+// FPS monitor
 // ─────────────────────────────────────────────────────────────────────────────
 
 function FpsMonitor({
   onReady,
-  targetFps = 30,   // ← lowered from 50
-  sustainMs = 300,  // ← lowered from 1000
+  targetFps = 30,
+  sustainMs = 300,
 }: {
   onReady: () => void;
   targetFps?: number;
@@ -530,7 +527,6 @@ function FpsMonitor({
     if (fired.current) return;
     const fps = 1 / delta;
     const now = performance.now();
-
     if (fps >= targetFps) {
       if (goodSince.current === null) goodSince.current = now;
       if (now - goodSince.current >= sustainMs) {
@@ -588,8 +584,8 @@ function TrailLayer({
         transparent: true,
         opacity: 0.8,
         depthWrite: false,
-        // eslint-disable-next-line react-hooks/exhaustive-deps
       }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [settings.peakColor]
   );
   useFrame(() => {
@@ -760,7 +756,8 @@ function HeatmapLayer({ settings }: { settings: Settings }) {
   );
   useFrame((state) => {
     if (!settings.heatmapEnabled) return;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
     const W = canvas.width,
       H = canvas.height;
     ctx.clearRect(0, 0, W, H);
@@ -771,18 +768,9 @@ function HeatmapLayer({ settings }: { settings: Settings }) {
     if (settings.heatPeakBlur > 0)
       ctx.filter = `blur(${settings.heatPeakBlur}px)`;
     paintBlobPass(
-      ctx,
-      W,
-      H,
-      settings.gridSize,
-      settings.spacing,
-      half,
-      totalSize,
-      t,
-      settings.waveSpeed,
-      settings.waveHeight,
-      settings.minScale,
-      settings.maxScale,
+      ctx, W, H,
+      settings.gridSize, settings.spacing, half, totalSize, t,
+      settings.waveSpeed, settings.waveHeight, settings.minScale, settings.maxScale,
       {
         color: settings.heatPeakColor,
         opacity: settings.heatPeakOpacity,
@@ -790,26 +778,16 @@ function HeatmapLayer({ settings }: { settings: Settings }) {
         threshold: settings.heatPeakThreshold,
         mode: 'peak',
       },
-      blobPxBase,
-      isCir
+      blobPxBase, isCir
     );
     if (settings.heatPeakBlur > 0) ctx.filter = 'none';
     if (settings.heatValleyEnabled) {
       if (settings.heatValleyBlur > 0)
         ctx.filter = `blur(${settings.heatValleyBlur}px)`;
       paintBlobPass(
-        ctx,
-        W,
-        H,
-        settings.gridSize,
-        settings.spacing,
-        half,
-        totalSize,
-        t,
-        settings.waveSpeed,
-        settings.waveHeight,
-        settings.minScale,
-        settings.maxScale,
+        ctx, W, H,
+        settings.gridSize, settings.spacing, half, totalSize, t,
+        settings.waveSpeed, settings.waveHeight, settings.minScale, settings.maxScale,
         {
           color: settings.heatValleyColor,
           opacity: settings.heatValleyOpacity,
@@ -817,8 +795,7 @@ function HeatmapLayer({ settings }: { settings: Settings }) {
           threshold: settings.heatValleyThreshold,
           mode: 'valley',
         },
-        blobPxBase,
-        isCir
+        blobPxBase, isCir
       );
       if (settings.heatValleyBlur > 0) ctx.filter = 'none';
     }
@@ -826,11 +803,7 @@ function HeatmapLayer({ settings }: { settings: Settings }) {
     texture.needsUpdate = true;
   });
   return (
-    <mesh
-      position={[0, -0.08, 0]}
-      rotation={[-Math.PI / 2, 0, 0]}
-      renderOrder={-1}
-    >
+    <mesh position={[0, -0.08, 0]} rotation={[-Math.PI / 2, 0, 0]} renderOrder={-1}>
       <planeGeometry args={[planeSize, planeSize]} />
       <meshBasicMaterial
         map={texture}
@@ -906,18 +879,8 @@ function SparkleField({ settings }: { settings: Settings }) {
     if (doSnap) lastSnapshotTime.current = t;
     for (let i = 0; i < instances.length; i++) {
       const { x, z, seed } = instances[i];
-      const h = computeHeight(
-        x,
-        z,
-        t,
-        seed,
-        settings.waveSpeed,
-        settings.waveHeight
-      );
-      const norm = Math.max(
-        0,
-        Math.min(1, (h + MAX_AMPLITUDE) / (2 * MAX_AMPLITUDE))
-      );
+      const h = computeHeight(x, z, t, seed, settings.waveSpeed, settings.waveHeight);
+      const norm = Math.max(0, Math.min(1, (h + MAX_AMPLITUDE) / (2 * MAX_AMPLITUDE)));
       const scale =
         (settings.minScale +
           (settings.maxScale - settings.minScale) *
@@ -937,8 +900,7 @@ function SparkleField({ settings }: { settings: Settings }) {
       if (doSnap) {
         const buf = snapshotsRef.current[i];
         buf.unshift({ px: x, py, pz: z, scale, ry });
-        if (buf.length > settings.trailLength)
-          buf.length = settings.trailLength;
+        if (buf.length > settings.trailLength) buf.length = settings.trailLength;
       }
     }
     mesh.instanceMatrix.needsUpdate = true;
@@ -1072,6 +1034,7 @@ function GooeyCanvas({
     el.style.opacity = settings.auraEnabled ? '1' : '0';
     el.style.mixBlendMode = settings.auraBlendMode;
   }, [settings.auraEnabled, settings.auraBlur, settings.auraBlendMode]);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -1081,6 +1044,7 @@ function GooeyCanvas({
     const colCenter: string[] = [],
       colMid: string[] = [],
       colZero: string[] = [];
+
     function rebuildColorCache(theme: AuraTheme, opacity: number) {
       const al = Math.min(1, resolveOpacity(opacity) * 0.65),
         alM = al * 0.5;
@@ -1091,6 +1055,7 @@ function GooeyCanvas({
         colZero.push(`rgba(${c},0)`);
       }
     }
+
     function draw() {
       const s = sRef.current,
         scene = sceneStateRef.current;
@@ -1098,14 +1063,28 @@ function GooeyCanvas({
         rafId = requestAnimationFrame(draw);
         return;
       }
+
+      // ── null-guard on canvas ──
+      if (!canvas) {
+        rafId = requestAnimationFrame(draw);
+        return;
+      }
+
       const { projMatrix, viewMatrix, width, height, time } = scene;
       const W = Math.round(width),
         H = Math.round(height);
+
       if (canvas.width !== W || canvas.height !== H) {
         canvas.width = W;
         canvas.height = H;
       }
-      const ctx = canvas.getContext('2d', { alpha: true })!;
+
+      const ctx = canvas.getContext('2d', { alpha: true });
+      if (!ctx) {
+        rafId = requestAnimationFrame(draw);
+        return;
+      }
+
       ctx.clearRect(0, 0, W, H);
       const ve = viewMatrix.elements,
         pe = projMatrix.elements;
@@ -1133,8 +1112,7 @@ function GooeyCanvas({
       const buckets: Bucket[] = Array.from({ length: nc }, () => []);
       for (let ix = 0; ix < gs; ix += 2) {
         for (let iz = 0; iz < gs; iz += 2) {
-          const bOffX = 0.5 * sp,
-            bOffZ = 0.5 * sp;
+          const bOffX = 0.5 * sp, bOffZ = 0.5 * sp;
           const wx = ix * sp - half + bOffX,
             wz = iz * sp - half + bOffZ;
           if (isCir && wx * wx + wz * wz > half * half) continue;
@@ -1145,10 +1123,8 @@ function GooeyCanvas({
             SEED_LUT[
               Math.min(ix + 1, gs - 1) * MAX_GRID + Math.min(iz + 1, gs - 1)
             ];
-          const wx0 = ix * sp - half,
-            wz0 = iz * sp - half,
-            wx1 = (ix + 1) * sp - half,
-            wz1 = (iz + 1) * sp - half;
+          const wx0 = ix * sp - half, wz0 = iz * sp - half,
+            wx1 = (ix + 1) * sp - half, wz1 = (iz + 1) * sp - half;
           const h =
             (computeHeight(wx0, wz0, time, s00, s.waveSpeed, s.waveHeight) +
               computeHeight(wx1, wz0, time, s10, s.waveSpeed, s.waveHeight) +
@@ -1170,8 +1146,7 @@ function GooeyCanvas({
           const r = baseBlobPx * scale;
           if (r < 1.0) continue;
           if (sx + r < 0 || sx - r > W || sy + r < 0 || sy - r > H) continue;
-          const bx = ix / 2,
-            bz = iz / 2;
+          const bx = ix / 2, bz = iz / 2;
           const cIdx = Math.abs(
             (((bx * 73856093) | 0) ^ ((bz * 19349663) | 0)) % nc
           );
@@ -1204,8 +1179,7 @@ function GooeyCanvas({
         if (s.auraValleyBlur > 0) ctx.filter = `blur(${s.auraValleyBlur}px)`;
         for (let ix = 0; ix < gs; ix += 2) {
           for (let iz = 0; iz < gs; iz += 2) {
-            const bOffX = 0.5 * sp,
-              bOffZ = 0.5 * sp;
+            const bOffX = 0.5 * sp, bOffZ = 0.5 * sp;
             const wx = ix * sp - half + bOffX,
               wz = iz * sp - half + bOffZ;
             if (isCir && wx * wx + wz * wz > half * half) continue;
@@ -1217,22 +1191,13 @@ function GooeyCanvas({
                   Math.min(ix + 1, gs - 1) * MAX_GRID +
                     Math.min(iz + 1, gs - 1)
                 ];
-            const wx0 = ix * sp - half,
-              wz0 = iz * sp - half,
-              wx1 = (ix + 1) * sp - half,
-              wz1 = (iz + 1) * sp - half;
+            const wx0 = ix * sp - half, wz0 = iz * sp - half,
+              wx1 = (ix + 1) * sp - half, wz1 = (iz + 1) * sp - half;
             const h =
               (computeHeight(wx0, wz0, time, s00, s.waveSpeed, s.waveHeight) +
                 computeHeight(wx1, wz0, time, s10, s.waveSpeed, s.waveHeight) +
                 computeHeight(wx0, wz1, time, s01, s.waveSpeed, s.waveHeight) +
-                computeHeight(
-                  wx1,
-                  wz1,
-                  time,
-                  s11,
-                  s.waveSpeed,
-                  s.waveHeight
-                )) *
+                computeHeight(wx1, wz1, time, s11, s.waveSpeed, s.waveHeight)) *
               0.25;
             const norm = Math.max(
               0,
@@ -1252,8 +1217,7 @@ function GooeyCanvas({
             if (!vis) continue;
             const r = valleyBlobPx * scale * 1.2;
             if (r < 1.0) continue;
-            if (sx + r < 0 || sx - r > W || sy + r < 0 || sy - r > H)
-              continue;
+            if (sx + r < 0 || sx - r > W || sy + r < 0 || sy - r > H) continue;
             const al = Math.min(1, vAl * Math.max(0, Math.min(1, gStr * 2)));
             const grd = ctx.createRadialGradient(sx, sy, 0, sx, sy, r);
             grd.addColorStop(0, `rgba(${vr},${vg},${vb},${al.toFixed(2)})`);
@@ -1303,6 +1267,7 @@ function GooeyCanvas({
     return () => cancelAnimationFrame(rafId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
   return (
     <div
       ref={containerRef}
@@ -1361,7 +1326,6 @@ function FogUpdater({
 
 function LoadingOverlay({ visible }: { visible: boolean }) {
   const [opacity, setOpacity] = useState(1);
-
   useEffect(() => {
     if (!visible) {
       const id = setTimeout(() => setOpacity(0), 50);
@@ -1370,9 +1334,7 @@ function LoadingOverlay({ visible }: { visible: boolean }) {
       setOpacity(1);
     }
   }, [visible]);
-
   if (!visible && opacity === 0) return null;
-
   return (
     <div
       style={{
@@ -1463,7 +1425,6 @@ const scrollBodyStyle: React.CSSProperties = {
   scrollbarWidth: 'none',
   WebkitOverflowScrolling: 'touch',
 };
-
 const sliderStyle: React.CSSProperties = {
   width: '100%',
   accentColor: ACCENT,
@@ -1490,14 +1451,7 @@ function hintRow(): React.CSSProperties {
     marginTop: 1,
   };
 }
-
-function SubLabel({
-  children,
-  color,
-}: {
-  children: React.ReactNode;
-  color?: string;
-}) {
+function SubLabel({ children, color }: { children: React.ReactNode; color?: string }) {
   return (
     <div
       style={{
@@ -1528,203 +1482,77 @@ function GroupHeading({ children }: { children: React.ReactNode }) {
         gap: 8,
       }}
     >
-      <span
-        style={{
-          flex: 1,
-          height: 1,
-          background: 'rgba(255,255,255,0.1)',
-          display: 'inline-block',
-        }}
-      />
+      <span style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.1)', display: 'inline-block' }} />
       {children}
-      <span
-        style={{
-          flex: 1,
-          height: 1,
-          background: 'rgba(255,255,255,0.1)',
-          display: 'inline-block',
-        }}
-      />
+      <span style={{ flex: 1, height: 1, background: 'rgba(255,255,255,0.1)', display: 'inline-block' }} />
     </div>
   );
 }
-function OpacitySlider({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-}) {
+function OpacitySlider({ label, value, onChange }: { label: string; value: number; onChange: (v: number) => void }) {
   const pct = Math.round(value * 100);
   return (
     <div style={{ marginBottom: 8 }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 3,
-        }}
-      >
-        <span
-          style={{
-            fontSize: 10,
-            fontWeight: 600,
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-            color: 'rgba(255,255,255,0.55)',
-          }}
-        >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+        <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.55)' }}>
           {label}
         </span>
         <span style={valueTagStyle}>{pct}%</span>
       </div>
-      <input
-        type="range"
-        min={0}
-        max={1.5}
-        step={0.01}
-        value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
-        style={sliderStyle}
-      />
-      <div style={hintRow()}>
-        <span>Subtle</span>
-        <span>150% vivid</span>
-      </div>
+      <input type="range" min={0} max={1.5} step={0.01} value={value} onChange={(e) => onChange(parseFloat(e.target.value))} style={sliderStyle} />
+      <div style={hintRow()}><span>Subtle</span><span>150% vivid</span></div>
     </div>
   );
 }
-function SliderRow({
-  label,
-  value,
-  min,
-  max,
-  step,
-  format,
-  onChange,
-  hints,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  format?: (v: number) => string;
-  onChange: (v: number) => void;
-  hints?: [string, string];
+function SliderRow({ label, value, min, max, step, format, onChange, hints }: {
+  label: string; value: number; min: number; max: number; step: number;
+  format?: (v: number) => string; onChange: (v: number) => void; hints?: [string, string];
 }) {
   const display = format ? format(value) : value.toFixed(step < 0.1 ? 2 : 0);
   return (
     <div style={{ marginBottom: 8 }}>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: 3,
-        }}
-      >
-        <span
-          style={{
-            fontSize: 10,
-            fontWeight: 600,
-            letterSpacing: '0.08em',
-            textTransform: 'uppercase',
-            color: 'rgba(255,255,255,0.55)',
-          }}
-        >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+        <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.55)' }}>
           {label}
         </span>
         <span style={valueTagStyle}>{display}</span>
       </div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(parseFloat(e.target.value))}
-        style={sliderStyle}
-      />
-      {hints && (
-        <div style={hintRow()}>
-          <span>{hints[0]}</span>
-          <span>{hints[1]}</span>
-        </div>
-      )}
+      <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(parseFloat(e.target.value))} style={sliderStyle} />
+      {hints && <div style={hintRow()}><span>{hints[0]}</span><span>{hints[1]}</span></div>}
     </div>
   );
 }
-function Toggle({
-  value,
-  onChange,
-  labelOn = 'On',
-  labelOff = 'Off',
-}: {
-  value: boolean;
-  onChange: (v: boolean) => void;
-  labelOn?: string;
-  labelOff?: string;
+function Toggle({ value, onChange, labelOn = 'On', labelOff = 'Off' }: {
+  value: boolean; onChange: (v: boolean) => void; labelOn?: string; labelOff?: string;
 }) {
   return (
     <button
       onClick={() => onChange(!value)}
       style={{
-        padding: '5px 12px',
-        borderRadius: 7,
-        border: value
-          ? '1px solid rgba(255,23,214,0.6)'
-          : '1px solid rgba(255,255,255,0.09)',
+        padding: '5px 12px', borderRadius: 7,
+        border: value ? '1px solid rgba(255,23,214,0.6)' : '1px solid rgba(255,255,255,0.09)',
         background: value ? 'rgba(255,23,214,0.18)' : 'rgba(255,255,255,0.04)',
         color: value ? '#ff9ef4' : 'rgba(255,255,255,0.45)',
-        cursor: 'pointer',
-        fontSize: 11,
-        fontWeight: 600,
-        transition: 'all 0.15s',
-        whiteSpace: 'nowrap',
+        cursor: 'pointer', fontSize: 11, fontWeight: 600, transition: 'all 0.15s', whiteSpace: 'nowrap',
       }}
     >
       {value ? `● ${labelOn}` : `○ ${labelOff}`}
     </button>
   );
 }
-function SegmentedRow({
-  options,
-  value,
-  onChange,
-}: {
-  options: { key: string; label: string; icon?: string }[];
-  value: string;
-  onChange: (k: string) => void;
+function SegmentedRow({ options, value, onChange }: {
+  options: { key: string; label: string; icon?: string }[]; value: string; onChange: (k: string) => void;
 }) {
   return (
     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
       {options.map(({ key, label, icon }) => (
         <button
-          key={key}
-          onClick={() => onChange(key)}
+          key={key} onClick={() => onChange(key)}
           style={{
-            flex: 1,
-            minWidth: 40,
-            padding: '5px 4px',
-            borderRadius: 7,
-            border:
-              value === key
-                ? '1px solid rgba(255,23,214,0.6)'
-                : '1px solid rgba(255,255,255,0.09)',
-            background:
-              value === key
-                ? 'rgba(255,23,214,0.18)'
-                : 'rgba(255,255,255,0.04)',
+            flex: 1, minWidth: 40, padding: '5px 4px', borderRadius: 7,
+            border: value === key ? '1px solid rgba(255,23,214,0.6)' : '1px solid rgba(255,255,255,0.09)',
+            background: value === key ? 'rgba(255,23,214,0.18)' : 'rgba(255,255,255,0.04)',
             color: value === key ? '#ff9ef4' : 'rgba(255,255,255,0.45)',
-            cursor: 'pointer',
-            fontSize: 11,
-            fontWeight: 500,
-            transition: 'all 0.15s',
-            textAlign: 'center' as const,
+            cursor: 'pointer', fontSize: 11, fontWeight: 500, transition: 'all 0.15s', textAlign: 'center' as const,
           }}
         >
           {icon && <div style={{ fontSize: 12, marginBottom: 1 }}>{icon}</div>}
@@ -1734,93 +1562,32 @@ function SegmentedRow({
     </div>
   );
 }
-function ColorRow({
-  label,
-  value,
-  onChange,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-}) {
+function ColorRow({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
   return (
     <div style={{ marginBottom: 6 }}>
       <SubLabel>{label}</SubLabel>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <input
-          type="color"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          style={{
-            width: 34,
-            height: 30,
-            border: 'none',
-            borderRadius: 6,
-            cursor: 'pointer',
-            background: 'none',
-            padding: 1,
-            flexShrink: 0,
-          }}
-        />
-        <input
-          type="text"
-          value={value}
-          onChange={(e) => {
-            if (/^#[0-9a-fA-F]{0,6}$/.test(e.target.value))
-              onChange(e.target.value);
-          }}
-          style={{
-            flex: 1,
-            background: 'rgba(255,255,255,0.05)',
-            border: '1px solid rgba(255,255,255,0.09)',
-            borderRadius: 6,
-            padding: '4px 9px',
-            color: '#fff',
-            fontSize: 12,
-            fontFamily: 'monospace',
-          }}
-        />
+        <input type="color" value={value} onChange={(e) => onChange(e.target.value)}
+          style={{ width: 34, height: 30, border: 'none', borderRadius: 6, cursor: 'pointer', background: 'none', padding: 1, flexShrink: 0 }} />
+        <input type="text" value={value}
+          onChange={(e) => { if (/^#[0-9a-fA-F]{0,6}$/.test(e.target.value)) onChange(e.target.value); }}
+          style={{ flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.09)', borderRadius: 6, padding: '4px 9px', color: '#fff', fontSize: 12, fontFamily: 'monospace' }} />
       </div>
     </div>
   );
 }
-function BlendPicker({
-  value,
-  onChange,
-}: {
-  value: BlendMode;
-  onChange: (v: BlendMode) => void;
-}) {
+function BlendPicker({ value, onChange }: { value: BlendMode; onChange: (v: BlendMode) => void }) {
   return (
     <div>
       <SubLabel>Blend Mode</SubLabel>
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4,1fr)',
-          gap: 4,
-        }}
-      >
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 4 }}>
         {BLEND_OPTIONS.map(({ key, label }) => (
-          <button
-            key={key}
-            onClick={() => onChange(key)}
+          <button key={key} onClick={() => onChange(key)}
             style={{
-              padding: '4px 3px',
-              borderRadius: 6,
-              fontSize: 9.5,
-              fontWeight: 500,
-              cursor: 'pointer',
-              transition: 'all 0.15s',
-              textAlign: 'center' as const,
-              border:
-                value === key
-                  ? '1px solid rgba(255,23,214,0.6)'
-                  : '1px solid rgba(255,255,255,0.09)',
-              background:
-                value === key
-                  ? 'rgba(255,23,214,0.18)'
-                  : 'rgba(255,255,255,0.04)',
+              padding: '4px 3px', borderRadius: 6, fontSize: 9.5, fontWeight: 500, cursor: 'pointer',
+              transition: 'all 0.15s', textAlign: 'center' as const,
+              border: value === key ? '1px solid rgba(255,23,214,0.6)' : '1px solid rgba(255,255,255,0.09)',
+              background: value === key ? 'rgba(255,23,214,0.18)' : 'rgba(255,255,255,0.04)',
               color: value === key ? '#ff9ef4' : 'rgba(255,255,255,0.45)',
             }}
           >
@@ -1831,237 +1598,75 @@ function BlendPicker({
     </div>
   );
 }
-function CollapsibleSection({
-  title,
-  color,
-  headerBg,
-  badge,
-  children,
-}: {
-  title: string;
-  color: string;
-  headerBg: string;
-  badge?: React.ReactNode;
-  children: React.ReactNode;
+function CollapsibleSection({ title, color, headerBg, badge, children }: {
+  title: string; color: string; headerBg: string; badge?: React.ReactNode; children: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <div
-      style={{
-        marginBottom: 5,
-        borderRadius: 10,
-        border: '1px solid rgba(255,255,255,0.07)',
-        overflow: 'hidden',
-      }}
-    >
+    <div style={{ marginBottom: 5, borderRadius: 10, border: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden' }}>
       <div
         onClick={() => setOpen((o) => !o)}
         style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '9px 12px',
-          cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '9px 12px', cursor: 'pointer',
           background: open ? headerBg.replace('0.06', '0.10') : headerBg,
           transition: 'background 0.15s',
         }}
       >
-        <span
-          style={{
-            fontSize: 11,
-            fontWeight: 700,
-            letterSpacing: '0.09em',
-            textTransform: 'uppercase',
-            color,
-          }}
-        >
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color }}>
           {open ? '▾' : '▸'}&nbsp;{title}
         </span>
         {badge && <span onClick={(e) => e.stopPropagation()}>{badge}</span>}
       </div>
       {open && (
-        <div
-          style={{
-            padding: '10px 12px 12px',
-            borderTop: '1px solid rgba(255,255,255,0.05)',
-          }}
-        >
+        <div style={{ padding: '10px 12px 12px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
           {children}
         </div>
       )}
     </div>
   );
 }
-function PeakPanel({
-  threshold,
-  onThreshold,
-  color,
-  onColor,
-  opacity,
-  onOpacity,
-  blobSize,
-  onBlobSize,
-  blur,
-  onBlur,
-}: {
-  threshold: number;
-  onThreshold: (v: number) => void;
-  color?: string;
-  onColor?: (v: string) => void;
-  opacity: number;
-  onOpacity: (v: number) => void;
-  blobSize: number;
-  onBlobSize: (v: number) => void;
-  blur: number;
-  onBlur: (v: number) => void;
+function PeakPanel({ threshold, onThreshold, color, onColor, opacity, onOpacity, blobSize, onBlobSize, blur, onBlur }: {
+  threshold: number; onThreshold: (v: number) => void;
+  color?: string; onColor?: (v: string) => void;
+  opacity: number; onOpacity: (v: number) => void;
+  blobSize: number; onBlobSize: (v: number) => void;
+  blur: number; onBlur: (v: number) => void;
 }) {
   return (
-    <div
-      style={{
-        marginTop: 10,
-        padding: '10px',
-        borderRadius: 8,
-        border: `1px solid ${C_EFF_BG}`,
-        background: C_EFF_BG,
-      }}
-    >
-      <div style={{ marginBottom: 10 }}>
-        <SubLabel color={C_EFFECT}>Peak Glow</SubLabel>
-      </div>
+    <div style={{ marginTop: 10, padding: '10px', borderRadius: 8, border: `1px solid ${C_EFF_BG}`, background: C_EFF_BG }}>
+      <div style={{ marginBottom: 10 }}><SubLabel color={C_EFFECT}>Peak Glow</SubLabel></div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        <SliderRow
-          label="Peak Threshold"
-          value={threshold}
-          min={0}
-          max={1}
-          step={0.01}
-          format={(v) => v.toFixed(2)}
-          onChange={onThreshold}
-          hints={['All cells', 'Only peaks']}
-        />
-        {color !== undefined && onColor && (
-          <ColorRow label="Peak Color" value={color} onChange={onColor} />
-        )}
-        <OpacitySlider
-          label="Glow Opacity"
-          value={opacity}
-          onChange={onOpacity}
-        />
-        <SliderRow
-          label="Blob Size"
-          value={blobSize}
-          min={0.1}
-          max={4.0}
-          step={0.05}
-          format={(v) => `${v.toFixed(2)}×`}
-          onChange={onBlobSize}
-          hints={['Pinpoint', 'Massive']}
-        />
-        <SliderRow
-          label="Blur"
-          value={blur}
-          min={0}
-          max={40}
-          step={0.5}
-          format={(v) => (v === 0 ? 'Off' : `${v.toFixed(1)}px`)}
-          onChange={onBlur}
-          hints={['Sharp', 'Diffused']}
-        />
+        <SliderRow label="Peak Threshold" value={threshold} min={0} max={1} step={0.01} format={(v) => v.toFixed(2)} onChange={onThreshold} hints={['All cells', 'Only peaks']} />
+        {color !== undefined && onColor && <ColorRow label="Peak Color" value={color} onChange={onColor} />}
+        <OpacitySlider label="Glow Opacity" value={opacity} onChange={onOpacity} />
+        <SliderRow label="Blob Size" value={blobSize} min={0.1} max={4.0} step={0.05} format={(v) => `${v.toFixed(2)}×`} onChange={onBlobSize} hints={['Pinpoint', 'Massive']} />
+        <SliderRow label="Blur" value={blur} min={0} max={40} step={0.5} format={(v) => (v === 0 ? 'Off' : `${v.toFixed(1)}px`)} onChange={onBlur} hints={['Sharp', 'Diffused']} />
       </div>
     </div>
   );
 }
-function ValleyPanel({
-  enabled,
-  onEnable,
-  threshold,
-  onThreshold,
-  color,
-  onColor,
-  opacity,
-  onOpacity,
-  blobSize,
-  onBlobSize,
-  blur,
-  onBlur,
-}: {
-  enabled: boolean;
-  onEnable: (v: boolean) => void;
-  threshold: number;
-  onThreshold: (v: number) => void;
-  color: string;
-  onColor: (v: string) => void;
-  opacity: number;
-  onOpacity: (v: number) => void;
-  blobSize: number;
-  onBlobSize: (v: number) => void;
-  blur: number;
-  onBlur: (v: number) => void;
+function ValleyPanel({ enabled, onEnable, threshold, onThreshold, color, onColor, opacity, onOpacity, blobSize, onBlobSize, blur, onBlur }: {
+  enabled: boolean; onEnable: (v: boolean) => void;
+  threshold: number; onThreshold: (v: number) => void;
+  color: string; onColor: (v: string) => void;
+  opacity: number; onOpacity: (v: number) => void;
+  blobSize: number; onBlobSize: (v: number) => void;
+  blur: number; onBlur: (v: number) => void;
 }) {
   return (
-    <div
-      style={{
-        marginTop: 10,
-        padding: '10px',
-        borderRadius: 8,
-        border: `1px solid ${C_EFF_BG}`,
-        background: C_EFF_BG,
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          marginBottom: enabled ? 10 : 0,
-        }}
-      >
+    <div style={{ marginTop: 10, padding: '10px', borderRadius: 8, border: `1px solid ${C_EFF_BG}`, background: C_EFF_BG }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: enabled ? 10 : 0 }}>
         <SubLabel color={C_EFFECT}>Valley Glow</SubLabel>
-        <Toggle
-          value={enabled}
-          onChange={onEnable}
-          labelOn="On"
-          labelOff="Off"
-        />
+        <Toggle value={enabled} onChange={onEnable} labelOn="On" labelOff="Off" />
       </div>
       {enabled && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <SliderRow
-            label="Valley Threshold"
-            value={threshold}
-            min={0.01}
-            max={0.9}
-            step={0.01}
-            format={(v) => v.toFixed(2)}
-            onChange={onThreshold}
-            hints={['Near-zero', 'Mid-range']}
-          />
+          <SliderRow label="Valley Threshold" value={threshold} min={0.01} max={0.9} step={0.01} format={(v) => v.toFixed(2)} onChange={onThreshold} hints={['Near-zero', 'Mid-range']} />
           <ColorRow label="Valley Color" value={color} onChange={onColor} />
-          <OpacitySlider
-            label="Glow Opacity"
-            value={opacity}
-            onChange={onOpacity}
-          />
-          <SliderRow
-            label="Blob Size"
-            value={blobSize}
-            min={0.1}
-            max={4.0}
-            step={0.05}
-            format={(v) => `${v.toFixed(2)}×`}
-            onChange={onBlobSize}
-            hints={['Pinpoint', 'Massive']}
-          />
-          <SliderRow
-            label="Blur"
-            value={blur}
-            min={0}
-            max={40}
-            step={0.5}
-            format={(v) => (v === 0 ? 'Off' : `${v.toFixed(1)}px`)}
-            onChange={onBlur}
-            hints={['Sharp', 'Diffused']}
-          />
+          <OpacitySlider label="Glow Opacity" value={opacity} onChange={onOpacity} />
+          <SliderRow label="Blob Size" value={blobSize} min={0.1} max={4.0} step={0.05} format={(v) => `${v.toFixed(2)}×`} onChange={onBlobSize} hints={['Pinpoint', 'Massive']} />
+          <SliderRow label="Blur" value={blur} min={0} max={40} step={0.5} format={(v) => (v === 0 ? 'Off' : `${v.toFixed(1)}px`)} onChange={onBlur} hints={['Sharp', 'Diffused']} />
         </div>
       )}
     </div>
@@ -2072,14 +1677,11 @@ function ValleyPanel({
 // Control Panel
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ControlPanel({
-  settings,
-  onChange,
-  onReset,
-}: {
+function ControlPanel({ settings, onChange, onReset, onDemoChange }: {
   settings: Settings;
   onChange: (p: Partial<Settings>) => void;
   onReset: () => void;
+  onDemoChange: (active: boolean) => void;
 }) {
   const [minimized, setMinimized] = useState(false);
   const [demoActive, setDemoActive] = useState(true);
@@ -2090,21 +1692,20 @@ function ControlPanel({
       prevSettingsRef.current = { ...settings };
       onChange(DEMO_SETTINGS);
       setDemoActive(true);
+      onDemoChange(true);
     } else {
       onChange(prevSettingsRef.current ?? DEFAULT_SETTINGS);
       prevSettingsRef.current = null;
       setDemoActive(false);
+      onDemoChange(false);
     }
-  }, [demoActive, settings, onChange]);
+  }, [demoActive, settings, onChange, onDemoChange]);
 
   const bgOptions = [
     { key: 'black', label: 'Black', icon: '⬛' },
     { key: 'white', label: 'White', icon: '⬜' },
   ] as { key: BackgroundColor; label: string; icon: string }[];
-  const maskOptions = [
-    { key: 'square', label: 'Square', icon: '⬜' },
-    { key: 'circle', label: 'Circle', icon: '⬤' },
-  ];
+  const maskOptions = [{ key: 'square', label: 'Square', icon: '⬜' }, { key: 'circle', label: 'Circle', icon: '⬤' }];
   const shapeOptions = [
     { key: 'star', label: 'Star', icon: '✦' },
     { key: 'circle', label: 'Circle', icon: '●' },
@@ -2112,63 +1713,28 @@ function ControlPanel({
     { key: 'triangle', label: 'Triangle', icon: '▲' },
     { key: 'text', label: 'Text', icon: 'A' },
   ];
-  const modeOptions = [
-    { key: 'flat', label: '2D Flat', icon: '◈' },
-    { key: 'sphere', label: '3D Sphere', icon: '⬤' },
-  ];
+  const modeOptions = [{ key: 'flat', label: '2D Flat', icon: '◈' }, { key: 'sphere', label: '3D Sphere', icon: '⬤' }];
   const colorSwatches = [
-    { hex: '#ffffff', label: 'White' },
-    { hex: '#000000', label: 'Black' },
-    { hex: '#ff17d6', label: 'Magenta' },
-    { hex: '#00e5ff', label: 'Cyan' },
-    { hex: '#ff6a00', label: 'Orange' },
-    { hex: '#ffe600', label: 'Yellow' },
-    { hex: '#00ff9f', label: 'Green' },
-    { hex: '#ff2244', label: 'Red' },
+    { hex: '#ffffff', label: 'White' }, { hex: '#000000', label: 'Black' },
+    { hex: '#ff17d6', label: 'Magenta' }, { hex: '#00e5ff', label: 'Cyan' },
+    { hex: '#ff6a00', label: 'Orange' }, { hex: '#ffe600', label: 'Yellow' },
+    { hex: '#00ff9f', label: 'Green' }, { hex: '#ff2244', label: 'Red' },
   ];
 
   return (
     <div style={panelStyle} onWheel={(e) => e.stopPropagation()}>
-      {/* ── Header ── */}
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          padding: '12px 16px 10px',
-          borderBottom: minimized ? 'none' : '1px solid rgba(255,255,255,0.06)',
-        }}
-      >
-        <div
-          style={{
-            fontSize: 13,
-            fontWeight: 700,
-            letterSpacing: '0.12em',
-            textTransform: 'uppercase',
-            color: '#ff9ef4',
-            flex: 1,
-          }}
-        >
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px 10px', borderBottom: minimized ? 'none' : '1px solid rgba(255,255,255,0.06)' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: '#ff9ef4', flex: 1 }}>
           ✦ Pellitone
         </div>
         <button
           onClick={handleDemoToggle}
           style={{
-            padding: '4px 10px',
-            borderRadius: 7,
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: '0.06em',
-            cursor: 'pointer',
-            transition: 'all 0.15s',
-            marginRight: 6,
-            whiteSpace: 'nowrap',
-            border: demoActive
-              ? '1px solid rgba(100,220,255,0.7)'
-              : '1px solid rgba(255,255,255,0.15)',
-            background: demoActive
-              ? 'rgba(0,180,255,0.22)'
-              : 'rgba(255,255,255,0.06)',
+            padding: '4px 10px', borderRadius: 7, fontSize: 10, fontWeight: 700,
+            letterSpacing: '0.06em', cursor: 'pointer', transition: 'all 0.15s',
+            marginRight: 6, whiteSpace: 'nowrap',
+            border: demoActive ? '1px solid rgba(100,220,255,0.7)' : '1px solid rgba(255,255,255,0.15)',
+            background: demoActive ? 'rgba(0,180,255,0.22)' : 'rgba(255,255,255,0.06)',
             color: demoActive ? '#64dcff' : 'rgba(255,255,255,0.55)',
           }}
         >
@@ -2178,239 +1744,78 @@ function ControlPanel({
           onClick={() => setMinimized((m) => !m)}
           title={minimized ? 'Expand panel' : 'Collapse panel'}
           style={{
-            width: 26,
-            height: 26,
-            borderRadius: 6,
-            border: '1px solid rgba(255,255,255,0.12)',
-            background: 'rgba(255,255,255,0.05)',
-            color: 'rgba(255,255,255,0.55)',
-            cursor: 'pointer',
-            fontSize: 13,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'all 0.15s',
-            flexShrink: 0,
+            width: 26, height: 26, borderRadius: 6, border: '1px solid rgba(255,255,255,0.12)',
+            background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.55)', cursor: 'pointer',
+            fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            transition: 'all 0.15s', flexShrink: 0,
           }}
         >
           {minimized ? '□' : '─'}
         </button>
       </div>
 
-      {/* ── Scrollable body ── */}
       {!minimized && (
         <div style={scrollBodyStyle}>
           <div style={{ paddingTop: 10 }}>
             <GroupHeading>Background</GroupHeading>
             <div style={{ marginBottom: 6 }}>
-              <SegmentedRow
-                options={bgOptions}
-                value={settings.backgroundColor}
-                onChange={(k) =>
-                  onChange({ backgroundColor: k as BackgroundColor })
-                }
-              />
+              <SegmentedRow options={bgOptions} value={settings.backgroundColor} onChange={(k) => onChange({ backgroundColor: k as BackgroundColor })} />
             </div>
 
             <GroupHeading>Base Layer</GroupHeading>
-            <CollapsibleSection
-              title="Halftone Pattern"
-              color={C_BASE}
-              headerBg={C_BASE_BG}
-            >
-              <div
-                style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
-              >
+            <CollapsibleSection title="Halftone Pattern" color={C_BASE} headerBg={C_BASE_BG}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div>
                   <SubLabel>Canvas Shape</SubLabel>
-                  <SegmentedRow
-                    options={maskOptions}
-                    value={settings.canvasMask}
-                    onChange={(k) => onChange({ canvasMask: k as CanvasMask })}
-                  />
+                  <SegmentedRow options={maskOptions} value={settings.canvasMask} onChange={(k) => onChange({ canvasMask: k as CanvasMask })} />
                 </div>
                 <div>
                   <SubLabel>Render Mode</SubLabel>
-                  <SegmentedRow
-                    options={modeOptions}
-                    value={settings.objectMode}
-                    onChange={(k) => onChange({ objectMode: k as ObjectMode })}
-                  />
+                  <SegmentedRow options={modeOptions} value={settings.objectMode} onChange={(k) => onChange({ objectMode: k as ObjectMode })} />
                 </div>
                 {settings.objectMode === 'flat' && (
                   <div>
                     <SubLabel>Shape</SubLabel>
-                    <SegmentedRow
-                      options={shapeOptions}
-                      value={settings.shape}
-                      onChange={(k) => onChange({ shape: k as ShapeType })}
-                    />
+                    <SegmentedRow options={shapeOptions} value={settings.shape} onChange={(k) => onChange({ shape: k as ShapeType })} />
                     {settings.shape === 'text' && (
                       <div style={{ marginTop: 8 }}>
                         <SubLabel>Character</SubLabel>
-                        <input
-                          type="text"
-                          maxLength={2}
-                          value={settings.textChar}
-                          onChange={(e) =>
-                            onChange({
-                              textChar: e.target.value.slice(-1) || '★',
-                            })
-                          }
-                          style={{
-                            width: '100%',
-                            background: 'rgba(255,255,255,0.07)',
-                            border: '1px solid rgba(255,23,214,0.35)',
-                            borderRadius: 8,
-                            padding: '6px 12px',
-                            color: '#ff9ef4',
-                            fontSize: 22,
-                            textAlign: 'center',
-                            fontFamily: 'serif',
-                            boxSizing: 'border-box',
-                            outline: 'none',
-                          }}
-                        />
+                        <input type="text" maxLength={2} value={settings.textChar}
+                          onChange={(e) => onChange({ textChar: e.target.value.slice(-1) || '★' })}
+                          style={{ width: '100%', background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,23,214,0.35)', borderRadius: 8, padding: '6px 12px', color: '#ff9ef4', fontSize: 22, textAlign: 'center', fontFamily: 'serif', boxSizing: 'border-box', outline: 'none' }} />
                       </div>
                     )}
                   </div>
                 )}
                 <div>
                   <SubLabel>Shape Color</SubLabel>
-                  <div
-                    style={{
-                      display: 'flex',
-                      gap: 5,
-                      flexWrap: 'wrap',
-                      marginBottom: 6,
-                    }}
-                  >
+                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', marginBottom: 6 }}>
                     {colorSwatches.map(({ hex, label }) => (
-                      <button
-                        key={hex}
-                        title={label}
-                        onClick={() => onChange({ peakColor: hex })}
-                        style={{
-                          width: 24,
-                          height: 24,
-                          borderRadius: 5,
-                          background: hex,
-                          padding: 0,
-                          flexShrink: 0,
-                          cursor: 'pointer',
-                          border:
-                            settings.peakColor === hex
-                              ? '2px solid #ff9ef4'
-                              : '1px solid rgba(255,255,255,0.18)',
-                        }}
-                      />
+                      <button key={hex} title={label} onClick={() => onChange({ peakColor: hex })}
+                        style={{ width: 24, height: 24, borderRadius: 5, background: hex, padding: 0, flexShrink: 0, cursor: 'pointer', border: settings.peakColor === hex ? '2px solid #ff9ef4' : '1px solid rgba(255,255,255,0.18)' }} />
                     ))}
                   </div>
-                  <ColorRow
-                    label="Custom Color"
-                    value={settings.peakColor}
-                    onChange={(v) => onChange({ peakColor: v })}
-                  />
+                  <ColorRow label="Custom Color" value={settings.peakColor} onChange={(v) => onChange({ peakColor: v })} />
                 </div>
-                <SliderRow
-                  label="Opacity"
-                  value={settings.opacity}
-                  min={0.05}
-                  max={1}
-                  step={0.01}
-                  format={(v) => `${Math.round(v * 100)}%`}
-                  onChange={(v) => onChange({ opacity: v })}
-                  hints={['Ghost', 'Solid']}
-                />
-                <SliderRow
-                  label="Shape Size"
-                  value={settings.svgSize}
-                  min={0.1}
-                  max={3.0}
-                  step={0.05}
-                  format={(v) => v.toFixed(2)}
-                  onChange={(v) => onChange({ svgSize: v })}
-                  hints={['Tiny', 'Large']}
-                />
+                <SliderRow label="Opacity" value={settings.opacity} min={0.05} max={1} step={0.01} format={(v) => `${Math.round(v * 100)}%`} onChange={(v) => onChange({ opacity: v })} hints={['Ghost', 'Solid']} />
+                <SliderRow label="Shape Size" value={settings.svgSize} min={0.1} max={3.0} step={0.05} format={(v) => v.toFixed(2)} onChange={(v) => onChange({ svgSize: v })} hints={['Tiny', 'Large']} />
                 <div>
                   <SubLabel>Size Range</SubLabel>
-                  <SliderRow
-                    label="Min Scale"
-                    value={settings.minScale}
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    format={(v) => v.toFixed(2)}
-                    onChange={(v) =>
-                      onChange({ minScale: Math.min(v, settings.maxScale) })
-                    }
-                    hints={['Invisible', 'Larger']}
-                  />
-                  <SliderRow
-                    label="Max Scale"
-                    value={settings.maxScale}
-                    min={0}
-                    max={2}
-                    step={0.01}
-                    format={(v) => v.toFixed(2)}
-                    onChange={(v) =>
-                      onChange({ maxScale: Math.max(v, settings.minScale) })
-                    }
-                    hints={['Smaller', 'Huge']}
-                  />
+                  <SliderRow label="Min Scale" value={settings.minScale} min={0} max={1} step={0.01} format={(v) => v.toFixed(2)} onChange={(v) => onChange({ minScale: Math.min(v, settings.maxScale) })} hints={['Invisible', 'Larger']} />
+                  <SliderRow label="Max Scale" value={settings.maxScale} min={0} max={2} step={0.01} format={(v) => v.toFixed(2)} onChange={(v) => onChange({ maxScale: Math.max(v, settings.minScale) })} hints={['Smaller', 'Huge']} />
                 </div>
-                <SliderRow
-                  label="Spacing"
-                  value={settings.spacing}
-                  min={0.15}
-                  max={1.5}
-                  step={0.01}
-                  format={(v) => v.toFixed(2)}
-                  onChange={(v) => onChange({ spacing: v })}
-                  hints={['Tight', 'Loose']}
-                />
-                <SliderRow
-                  label="Rotation Speed"
-                  value={settings.rotationSpeed}
-                  min={0}
-                  max={3.0}
-                  step={0.05}
-                  format={(v) => v.toFixed(2)}
-                  onChange={(v) => onChange({ rotationSpeed: v })}
-                  hints={['Stopped', 'Fast']}
-                />
+                <SliderRow label="Spacing" value={settings.spacing} min={0.15} max={1.5} step={0.01} format={(v) => v.toFixed(2)} onChange={(v) => onChange({ spacing: v })} hints={['Tight', 'Loose']} />
+                <SliderRow label="Rotation Speed" value={settings.rotationSpeed} min={0} max={3.0} step={0.05} format={(v) => v.toFixed(2)} onChange={(v) => onChange({ rotationSpeed: v })} hints={['Stopped', 'Fast']} />
                 <div>
                   <SubLabel>Rotation Direction</SubLabel>
                   <div style={{ display: 'flex', gap: 5 }}>
-                    {[
-                      { val: 1, label: '↻ Clockwise' },
-                      { val: -1, label: '↺ Counter' },
-                    ].map(({ val, label }) => (
-                      <button
-                        key={val}
-                        onClick={() =>
-                          onChange({ rotationDirection: val as 1 | -1 })
-                        }
+                    {[{ val: 1, label: '↻ Clockwise' }, { val: -1, label: '↺ Counter' }].map(({ val, label }) => (
+                      <button key={val} onClick={() => onChange({ rotationDirection: val as 1 | -1 })}
                         style={{
-                          flex: 1,
-                          padding: '5px 8px',
-                          borderRadius: 7,
-                          fontSize: 11,
-                          fontWeight: 500,
-                          cursor: 'pointer',
-                          transition: 'all 0.15s',
-                          border:
-                            settings.rotationDirection === val
-                              ? '1px solid rgba(255,23,214,0.6)'
-                              : '1px solid rgba(255,255,255,0.09)',
-                          background:
-                            settings.rotationDirection === val
-                              ? 'rgba(255,23,214,0.18)'
-                              : 'rgba(255,255,255,0.04)',
-                          color:
-                            settings.rotationDirection === val
-                              ? '#ff9ef4'
-                              : 'rgba(255,255,255,0.45)',
+                          flex: 1, padding: '5px 8px', borderRadius: 7, fontSize: 11, fontWeight: 500, cursor: 'pointer', transition: 'all 0.15s',
+                          border: settings.rotationDirection === val ? '1px solid rgba(255,23,214,0.6)' : '1px solid rgba(255,255,255,0.09)',
+                          background: settings.rotationDirection === val ? 'rgba(255,23,214,0.18)' : 'rgba(255,255,255,0.04)',
+                          color: settings.rotationDirection === val ? '#ff9ef4' : 'rgba(255,255,255,0.45)',
                         }}
                       >
                         {label}
@@ -2421,169 +1826,41 @@ function ControlPanel({
               </div>
             </CollapsibleSection>
 
-            <CollapsibleSection
-              title="Halftone Trails"
-              color={C_BASE}
-              headerBg={C_BASE_BG}
-              badge={
-                <Toggle
-                  value={settings.trailEnabled}
-                  onChange={(v) => onChange({ trailEnabled: v })}
-                  labelOn="On"
-                  labelOff="Off"
-                />
-              }
+            <CollapsibleSection title="Halftone Trails" color={C_BASE} headerBg={C_BASE_BG}
+              badge={<Toggle value={settings.trailEnabled} onChange={(v) => onChange({ trailEnabled: v })} labelOn="On" labelOff="Off" />}
             >
-              <div
-                style={{
-                  opacity: settings.trailEnabled ? 1 : 0.4,
-                  pointerEvents: settings.trailEnabled ? 'auto' : 'none',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 10,
-                }}
-              >
-                <SliderRow
-                  label="Trail Length"
-                  value={settings.trailLength}
-                  min={1}
-                  max={24}
-                  step={1}
-                  format={(v) => String(Math.round(v))}
-                  onChange={(v) => onChange({ trailLength: Math.round(v) })}
-                  hints={['1 ghost', '24 ghosts']}
-                />
-                <SliderRow
-                  label="Trail Decay"
-                  value={settings.trailDecay}
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  format={(v) => v.toFixed(2)}
-                  onChange={(v) => onChange({ trailDecay: v })}
-                  hints={['Long smear', 'Sharp comet']}
-                />
-                <SliderRow
-                  label="Pulse Speed"
-                  value={settings.trailPulseSpeed}
-                  min={0}
-                  max={4.0}
-                  step={0.1}
-                  format={(v) => (v === 0 ? 'Off' : `${v.toFixed(1)} Hz`)}
-                  onChange={(v) => onChange({ trailPulseSpeed: v })}
-                  hints={['Always on', 'Fast pulse']}
-                />
+              <div style={{ opacity: settings.trailEnabled ? 1 : 0.4, pointerEvents: settings.trailEnabled ? 'auto' : 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <SliderRow label="Trail Length" value={settings.trailLength} min={1} max={24} step={1} format={(v) => String(Math.round(v))} onChange={(v) => onChange({ trailLength: Math.round(v) })} hints={['1 ghost', '24 ghosts']} />
+                <SliderRow label="Trail Decay" value={settings.trailDecay} min={0} max={1} step={0.01} format={(v) => v.toFixed(2)} onChange={(v) => onChange({ trailDecay: v })} hints={['Long smear', 'Sharp comet']} />
+                <SliderRow label="Pulse Speed" value={settings.trailPulseSpeed} min={0} max={4.0} step={0.1} format={(v) => (v === 0 ? 'Off' : `${v.toFixed(1)} Hz`)} onChange={(v) => onChange({ trailPulseSpeed: v })} hints={['Always on', 'Fast pulse']} />
               </div>
             </CollapsibleSection>
 
-            <CollapsibleSection
-              title="Wave Modifiers"
-              color={C_BASE}
-              headerBg={C_BASE_BG}
-            >
-              <div
-                style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
-              >
-                <SliderRow
-                  label="Wave Speed"
-                  value={settings.waveSpeed}
-                  min={0}
-                  max={5.0}
-                  step={0.05}
-                  format={(v) => v.toFixed(2)}
-                  onChange={(v) => onChange({ waveSpeed: v })}
-                  hints={['Frozen', 'Frantic']}
-                />
-                <SliderRow
-                  label="Wave Height"
-                  value={settings.waveHeight}
-                  min={0}
-                  max={4.0}
-                  step={0.05}
-                  format={(v) => v.toFixed(2)}
-                  onChange={(v) => onChange({ waveHeight: v })}
-                  hints={['Flat', 'Towering']}
-                />
-                <SliderRow
-                  label="Grid Size"
-                  value={settings.gridSize}
-                  min={8}
-                  max={96}
-                  step={4}
-                  format={(v) => `${Math.round(v)}×${Math.round(v)}`}
-                  onChange={(v) => onChange({ gridSize: Math.round(v) })}
-                  hints={['8×8 sparse', '96×96 dense']}
-                />
-                <SliderRow
-                  label="Draw Distance"
-                  value={settings.drawDistance}
-                  min={10}
-                  max={150}
-                  step={1}
-                  format={(v) => String(Math.round(v))}
-                  onChange={(v) => onChange({ drawDistance: Math.round(v) })}
-                  hints={['Close', 'Far']}
-                />
+            <CollapsibleSection title="Wave Modifiers" color={C_BASE} headerBg={C_BASE_BG}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <SliderRow label="Wave Speed" value={settings.waveSpeed} min={0} max={5.0} step={0.05} format={(v) => v.toFixed(2)} onChange={(v) => onChange({ waveSpeed: v })} hints={['Frozen', 'Frantic']} />
+                <SliderRow label="Wave Height" value={settings.waveHeight} min={0} max={4.0} step={0.05} format={(v) => v.toFixed(2)} onChange={(v) => onChange({ waveHeight: v })} hints={['Flat', 'Towering']} />
+                <SliderRow label="Grid Size" value={settings.gridSize} min={8} max={96} step={4} format={(v) => `${Math.round(v)}×${Math.round(v)}`} onChange={(v) => onChange({ gridSize: Math.round(v) })} hints={['8×8 sparse', '96×96 dense']} />
+                <SliderRow label="Draw Distance" value={settings.drawDistance} min={10} max={150} step={1} format={(v) => String(Math.round(v))} onChange={(v) => onChange({ drawDistance: Math.round(v) })} hints={['Close', 'Far']} />
               </div>
             </CollapsibleSection>
 
             <GroupHeading>Effect Layers</GroupHeading>
 
-            <CollapsibleSection
-              title="Aura"
-              color={C_EFFECT}
-              headerBg={C_EFF_BG}
-              badge={
-                <Toggle
-                  value={settings.auraEnabled}
-                  onChange={(v) => onChange({ auraEnabled: v })}
-                  labelOn="On"
-                  labelOff="Off"
-                />
-              }
+            <CollapsibleSection title="Aura" color={C_EFFECT} headerBg={C_EFF_BG}
+              badge={<Toggle value={settings.auraEnabled} onChange={(v) => onChange({ auraEnabled: v })} labelOn="On" labelOff="Off" />}
             >
-              <div
-                style={{
-                  opacity: settings.auraEnabled ? 1 : 0.4,
-                  pointerEvents: settings.auraEnabled ? 'auto' : 'none',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 10,
-                }}
-              >
+              <div style={{ opacity: settings.auraEnabled ? 1 : 0.4, pointerEvents: settings.auraEnabled ? 'auto' : 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div>
                   <SubLabel>Theme</SubLabel>
-                  <div
-                    style={{
-                      display: 'grid',
-                      gridTemplateColumns: 'repeat(4,1fr)',
-                      gap: 5,
-                    }}
-                  >
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 5 }}>
                     {AURA_THEMES.map((theme, i) => (
-                      <button
-                        key={i}
-                        title={theme.name}
-                        onClick={() => onChange({ auraThemeIndex: i })}
+                      <button key={i} title={theme.name} onClick={() => onChange({ auraThemeIndex: i })}
                         style={{
-                          height: 32,
-                          borderRadius: 7,
-                          cursor: 'pointer',
-                          border:
-                            settings.auraThemeIndex === i
-                              ? '2px solid #64dcff'
-                              : '1px solid rgba(255,255,255,0.12)',
-                          background: `linear-gradient(135deg,rgb(${
-                            theme.colors[0]
-                          }),rgb(${theme.colors[2]}),rgb(${
-                            theme.colors[4] ?? theme.colors[0]
-                          }))`,
-                          padding: 0,
-                          fontSize: 8,
-                          color: 'rgba(255,255,255,0.8)',
-                          fontWeight: 600,
-                          overflow: 'hidden',
-                          transition: 'border-color 0.15s',
+                          height: 32, borderRadius: 7, cursor: 'pointer',
+                          border: settings.auraThemeIndex === i ? '2px solid #64dcff' : '1px solid rgba(255,255,255,0.12)',
+                          background: `linear-gradient(135deg,rgb(${theme.colors[0]}),rgb(${theme.colors[2]}),rgb(${theme.colors[4] ?? theme.colors[0]}))`,
+                          padding: 0, fontSize: 8, color: 'rgba(255,255,255,0.8)', fontWeight: 600, overflow: 'hidden', transition: 'border-color 0.15s',
                         }}
                       >
                         {theme.name}
@@ -2591,181 +1868,62 @@ function ControlPanel({
                     ))}
                   </div>
                 </div>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                  }}
-                >
-                  <span
-                    style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}
-                  >
-                    Show halftone dots
-                  </span>
-                  <Toggle
-                    value={settings.auraDotsVisible}
-                    onChange={(v) => onChange({ auraDotsVisible: v })}
-                    labelOn="Visible"
-                    labelOff="Hidden"
-                  />
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>Show halftone dots</span>
+                  <Toggle value={settings.auraDotsVisible} onChange={(v) => onChange({ auraDotsVisible: v })} labelOn="Visible" labelOff="Hidden" />
                 </div>
-                <SliderRow
-                  label="Blur"
-                  value={settings.auraBlur}
-                  min={0}
-                  max={80}
-                  step={1}
-                  format={(v) => `${Math.round(v)}px`}
-                  onChange={(v) => onChange({ auraBlur: v })}
-                  hints={['Sharp / gooey', 'Ultra soft']}
-                />
-                <SliderRow
-                  label="Liquidity"
-                  value={settings.auraLiquidity}
-                  min={0}
-                  max={100}
-                  step={1}
-                  format={(v) => String(Math.round(v))}
-                  onChange={(v) => onChange({ auraLiquidity: v })}
-                  hints={['Loose blobs', 'Hard merge']}
-                />
-                <SliderRow
-                  label="Edge Fade"
-                  value={settings.auraEdgeFade}
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  format={(v) => (v === 0 ? 'Off' : `${Math.round(v * 100)}%`)}
-                  onChange={(v) => onChange({ auraEdgeFade: v })}
-                  hints={['None', 'Super soft']}
-                />
-                <BlendPicker
-                  value={settings.auraBlendMode}
-                  onChange={(v) => onChange({ auraBlendMode: v as BlendMode })}
-                />
+                <SliderRow label="Blur" value={settings.auraBlur} min={0} max={80} step={1} format={(v) => `${Math.round(v)}px`} onChange={(v) => onChange({ auraBlur: v })} hints={['Sharp / gooey', 'Ultra soft']} />
+                <SliderRow label="Liquidity" value={settings.auraLiquidity} min={0} max={100} step={1} format={(v) => String(Math.round(v))} onChange={(v) => onChange({ auraLiquidity: v })} hints={['Loose blobs', 'Hard merge']} />
+                <SliderRow label="Edge Fade" value={settings.auraEdgeFade} min={0} max={1} step={0.01} format={(v) => (v === 0 ? 'Off' : `${Math.round(v * 100)}%`)} onChange={(v) => onChange({ auraEdgeFade: v })} hints={['None', 'Super soft']} />
+                <BlendPicker value={settings.auraBlendMode} onChange={(v) => onChange({ auraBlendMode: v as BlendMode })} />
                 <PeakPanel
-                  threshold={settings.auraPeakThreshold}
-                  onThreshold={(v) => onChange({ auraPeakThreshold: v })}
-                  opacity={settings.auraOpacity}
-                  onOpacity={(v) => onChange({ auraOpacity: v })}
-                  blobSize={settings.auraBlobSize}
-                  onBlobSize={(v) => onChange({ auraBlobSize: v })}
-                  blur={settings.auraPeakBlur}
-                  onBlur={(v) => onChange({ auraPeakBlur: v })}
+                  threshold={settings.auraPeakThreshold} onThreshold={(v) => onChange({ auraPeakThreshold: v })}
+                  opacity={settings.auraOpacity} onOpacity={(v) => onChange({ auraOpacity: v })}
+                  blobSize={settings.auraBlobSize} onBlobSize={(v) => onChange({ auraBlobSize: v })}
+                  blur={settings.auraPeakBlur} onBlur={(v) => onChange({ auraPeakBlur: v })}
                 />
                 <ValleyPanel
-                  enabled={settings.auraValleyEnabled}
-                  onEnable={(v) => onChange({ auraValleyEnabled: v })}
-                  threshold={settings.auraValleyThreshold}
-                  onThreshold={(v) => onChange({ auraValleyThreshold: v })}
-                  color={settings.auraValleyColor}
-                  onColor={(v) => onChange({ auraValleyColor: v })}
-                  opacity={settings.auraValleyOpacity}
-                  onOpacity={(v) => onChange({ auraValleyOpacity: v })}
-                  blobSize={settings.auraValleyBlobSize}
-                  onBlobSize={(v) => onChange({ auraValleyBlobSize: v })}
-                  blur={settings.auraValleyBlur}
-                  onBlur={(v) => onChange({ auraValleyBlur: v })}
+                  enabled={settings.auraValleyEnabled} onEnable={(v) => onChange({ auraValleyEnabled: v })}
+                  threshold={settings.auraValleyThreshold} onThreshold={(v) => onChange({ auraValleyThreshold: v })}
+                  color={settings.auraValleyColor} onColor={(v) => onChange({ auraValleyColor: v })}
+                  opacity={settings.auraValleyOpacity} onOpacity={(v) => onChange({ auraValleyOpacity: v })}
+                  blobSize={settings.auraValleyBlobSize} onBlobSize={(v) => onChange({ auraValleyBlobSize: v })}
+                  blur={settings.auraValleyBlur} onBlur={(v) => onChange({ auraValleyBlur: v })}
                 />
               </div>
             </CollapsibleSection>
 
-            <CollapsibleSection
-              title="Heatmap"
-              color={C_EFFECT}
-              headerBg={C_EFF_BG}
-              badge={
-                <Toggle
-                  value={settings.heatmapEnabled}
-                  onChange={(v) => onChange({ heatmapEnabled: v })}
-                  labelOn="On"
-                  labelOff="Off"
-                />
-              }
+            <CollapsibleSection title="Heatmap" color={C_EFFECT} headerBg={C_EFF_BG}
+              badge={<Toggle value={settings.heatmapEnabled} onChange={(v) => onChange({ heatmapEnabled: v })} labelOn="On" labelOff="Off" />}
             >
-              <div
-                style={{
-                  opacity: settings.heatmapEnabled ? 1 : 0.4,
-                  pointerEvents: settings.heatmapEnabled ? 'auto' : 'none',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 10,
-                }}
-              >
-                <SliderRow
-                  label="Edge Fade"
-                  value={settings.heatEdgeFade}
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  format={(v) =>
-                    v === 0
-                      ? 'Hard'
-                      : v >= 0.95
-                      ? 'Soft'
-                      : `${Math.round(v * 100)}%`
-                  }
-                  onChange={(v) => onChange({ heatEdgeFade: v })}
-                  hints={['Hard edge', 'Super soft']}
-                />
-                <BlendPicker
-                  value={settings.heatBlendMode}
-                  onChange={(v) => onChange({ heatBlendMode: v as BlendMode })}
-                />
+              <div style={{ opacity: settings.heatmapEnabled ? 1 : 0.4, pointerEvents: settings.heatmapEnabled ? 'auto' : 'none', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <SliderRow label="Edge Fade" value={settings.heatEdgeFade} min={0} max={1} step={0.01}
+                  format={(v) => v === 0 ? 'Hard' : v >= 0.95 ? 'Soft' : `${Math.round(v * 100)}%`}
+                  onChange={(v) => onChange({ heatEdgeFade: v })} hints={['Hard edge', 'Super soft']} />
+                <BlendPicker value={settings.heatBlendMode} onChange={(v) => onChange({ heatBlendMode: v as BlendMode })} />
                 <PeakPanel
-                  threshold={settings.heatPeakThreshold}
-                  onThreshold={(v) => onChange({ heatPeakThreshold: v })}
-                  color={settings.heatPeakColor}
-                  onColor={(v) => onChange({ heatPeakColor: v })}
-                  opacity={settings.heatPeakOpacity}
-                  onOpacity={(v) => onChange({ heatPeakOpacity: v })}
-                  blobSize={settings.heatBlobSize}
-                  onBlobSize={(v) => onChange({ heatBlobSize: v })}
-                  blur={settings.heatPeakBlur}
-                  onBlur={(v) => onChange({ heatPeakBlur: v })}
+                  threshold={settings.heatPeakThreshold} onThreshold={(v) => onChange({ heatPeakThreshold: v })}
+                  color={settings.heatPeakColor} onColor={(v) => onChange({ heatPeakColor: v })}
+                  opacity={settings.heatPeakOpacity} onOpacity={(v) => onChange({ heatPeakOpacity: v })}
+                  blobSize={settings.heatBlobSize} onBlobSize={(v) => onChange({ heatBlobSize: v })}
+                  blur={settings.heatPeakBlur} onBlur={(v) => onChange({ heatPeakBlur: v })}
                 />
                 <ValleyPanel
-                  enabled={settings.heatValleyEnabled}
-                  onEnable={(v) => onChange({ heatValleyEnabled: v })}
-                  threshold={settings.heatValleyThreshold}
-                  onThreshold={(v) => onChange({ heatValleyThreshold: v })}
-                  color={settings.heatValleyColor}
-                  onColor={(v) => onChange({ heatValleyColor: v })}
-                  opacity={settings.heatValleyOpacity}
-                  onOpacity={(v) => onChange({ heatValleyOpacity: v })}
-                  blobSize={settings.heatValleyBlobSize}
-                  onBlobSize={(v) => onChange({ heatValleyBlobSize: v })}
-                  blur={settings.heatValleyBlur}
-                  onBlur={(v) => onChange({ heatValleyBlur: v })}
+                  enabled={settings.heatValleyEnabled} onEnable={(v) => onChange({ heatValleyEnabled: v })}
+                  threshold={settings.heatValleyThreshold} onThreshold={(v) => onChange({ heatValleyThreshold: v })}
+                  color={settings.heatValleyColor} onColor={(v) => onChange({ heatValleyColor: v })}
+                  opacity={settings.heatValleyOpacity} onOpacity={(v) => onChange({ heatValleyOpacity: v })}
+                  blobSize={settings.heatValleyBlobSize} onBlobSize={(v) => onChange({ heatValleyBlobSize: v })}
+                  blur={settings.heatValleyBlur} onBlur={(v) => onChange({ heatValleyBlur: v })}
                 />
               </div>
             </CollapsibleSection>
 
             <button
               onClick={onReset}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background =
-                  'rgba(255,23,214,0.24)';
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.background =
-                  'rgba(255,23,214,0.1)';
-              }}
-              style={{
-                width: '100%',
-                marginTop: 8,
-                padding: '9px',
-                borderRadius: 9,
-                border: '1px solid rgba(255,23,214,0.4)',
-                background: 'rgba(255,23,214,0.1)',
-                color: '#ff9ef4',
-                cursor: 'pointer',
-                fontSize: 12,
-                fontWeight: 700,
-                letterSpacing: '0.07em',
-                transition: 'all 0.15s',
-              }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,23,214,0.24)'; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = 'rgba(255,23,214,0.1)'; }}
+              style={{ width: '100%', marginTop: 8, padding: '9px', borderRadius: 9, border: '1px solid rgba(255,23,214,0.4)', background: 'rgba(255,23,214,0.1)', color: '#ff9ef4', cursor: 'pointer', fontSize: 12, fontWeight: 700, letterSpacing: '0.07em', transition: 'all 0.15s' }}
             >
               ↺ Reset to Defaults
             </button>
@@ -2788,15 +1946,8 @@ export default function PellitoneScene() {
     (patch: Partial<Settings>) => setSettings((p) => ({ ...p, ...patch })),
     []
   );
-  const handleReset = useCallback(
-    () => setSettings({ ...DEFAULT_SETTINGS }),
-    []
-  );
-
-  // Track demo active state so we can switch camera position
-  const handleDemoChange = useCallback((active: boolean) => {
-    setDemoActive(active);
-  }, []);
+  const handleReset = useCallback(() => setSettings({ ...DEFAULT_SETTINGS }), []);
+  const handleDemoChange = useCallback((active: boolean) => setDemoActive(active), []);
 
   const [loading, setLoading] = useState(true);
   const handleReady = useCallback(() => setLoading(false), []);
@@ -2805,35 +1956,14 @@ export default function PellitoneScene() {
   const sceneStateRef = useRef<SceneState | null>(null);
   const gooMatrixRef = useRef<SVGFEColorMatrixElement | null>(null);
 
-  // Choose camera params based on demo mode
   const camPos = demoActive ? DEMO_CAMERA_POSITION : DEFAULT_CAMERA_POSITION;
   const camFov = demoActive ? DEMO_CAMERA_FOV : DEFAULT_CAMERA_FOV;
 
   return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: bgCfg.canvasBackground,
-        overflow: 'hidden',
-      }}
-    >
-      <svg
-        style={{
-          position: 'absolute',
-          width: 0,
-          height: 0,
-          overflow: 'hidden',
-        }}
-      >
+    <div style={{ position: 'fixed', inset: 0, background: bgCfg.canvasBackground, overflow: 'hidden' }}>
+      <svg style={{ position: 'absolute', width: 0, height: 0, overflow: 'hidden' }}>
         <defs>
-          <filter
-            id="aura-goo-filter"
-            x="-30%"
-            y="-30%"
-            width="160%"
-            height="160%"
-          >
+          <filter id="aura-goo-filter" x="-30%" y="-30%" width="160%" height="160%">
             <feGaussianBlur in="SourceGraphic" stdDeviation="6" result="blur" />
             <feColorMatrix
               ref={gooMatrixRef}
@@ -2848,130 +1978,35 @@ export default function PellitoneScene() {
       </svg>
 
       <Canvas
-        key={`cam-${demoActive}`} // remount canvas when demo toggles to apply new camera
+        key={`cam-${demoActive}`}
         style={{ width: '100%', height: '100%', display: 'block' }}
         dpr={[1, 1.5]}
         gl={{ antialias: true, powerPreference: 'high-performance' }}
-        camera={{
-          position: camPos,
-          fov: camFov,
-          near: 0.1,
-          far: settings.drawDistance + 10,
-        }}
+        camera={{ position: camPos, fov: camFov, near: 0.1, far: settings.drawDistance + 10 }}
       >
-        <fog
-          attach="fog"
-          args={[
-            bgCfg.fogColor,
-            settings.drawDistance * 0.35,
-            settings.drawDistance,
-          ]}
-        />
-        <FogUpdater
-          fogColor={bgCfg.fogColor}
-          drawDistance={settings.drawDistance}
-        />
+        <fog attach="fog" args={[bgCfg.fogColor, settings.drawDistance * 0.35, settings.drawDistance]} />
+        <FogUpdater fogColor={bgCfg.fogColor} drawDistance={settings.drawDistance} />
         <ambientLight intensity={0.55} />
-        <pointLight
-          position={[10, 12, 10]}
-          intensity={220}
-          color="#ff2fd6"
-          distance={60}
-        />
-        <pointLight
-          position={[-12, 8, -10]}
-          intensity={140}
-          color="#7a3bff"
-          distance={60}
-        />
-        <pointLight
-          position={[0, 6, -18]}
-          intensity={90}
-          color="#00e5ff"
-          distance={50}
-        />
+        <pointLight position={[10, 12, 10]} intensity={220} color="#ff2fd6" distance={60} />
+        <pointLight position={[-12, 8, -10]} intensity={140} color="#7a3bff" distance={60} />
+        <pointLight position={[0, 6, -18]} intensity={90} color="#00e5ff" distance={50} />
         <SceneExporter stateRef={sceneStateRef} />
         <SparkleField settings={settings} />
         <FpsMonitor onReady={handleReady} />
         <OrbitControls
-          enableDamping
-          dampingFactor={0.08}
-          rotateSpeed={0.6}
-          zoomSpeed={0.8}
-          panSpeed={0.6}
-          minDistance={6}
-          maxDistance={90}
-          minPolarAngle={0}
-          maxPolarAngle={Math.PI / 2 - 0.01}
+          enableDamping dampingFactor={0.08} rotateSpeed={0.6} zoomSpeed={0.8} panSpeed={0.6}
+          minDistance={6} maxDistance={90} minPolarAngle={0} maxPolarAngle={Math.PI / 2 - 0.01}
           target={[0, 0, 0]}
         />
       </Canvas>
 
-      <GooeyCanvas
-        settings={settings}
-        sceneStateRef={sceneStateRef}
-        gooMatrixRef={gooMatrixRef}
-      />
-      <ControlPanel
-        settings={settings}
-        onChange={(patch) => {
-          handleChange(patch);
-        }}
-        onReset={handleReset}
-      />
-
-      {/* Wire up demo toggle from ControlPanel to local state */}
-      <DemoStateSync
-        settings={settings}
-        onDemoChange={handleDemoChange}
-      />
-
+      <GooeyCanvas settings={settings} sceneStateRef={sceneStateRef} gooMatrixRef={gooMatrixRef} />
+      <ControlPanel settings={settings} onChange={handleChange} onReset={handleReset} onDemoChange={handleDemoChange} />
       <LoadingOverlay visible={loading} />
 
-      <div
-        style={{
-          position: 'absolute',
-          bottom: 18,
-          left: 24,
-          color: 'rgba(255,255,255,0.28)',
-          fontFamily: "'Inter',-apple-system,sans-serif",
-          fontSize: 11,
-          letterSpacing: '0.08em',
-          textTransform: 'uppercase',
-          pointerEvents: 'none',
-        }}
-      >
+      <div style={{ position: 'absolute', bottom: 18, left: 24, color: 'rgba(255,255,255,0.28)', fontFamily: "'Inter',-apple-system,sans-serif", fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', pointerEvents: 'none' }}>
         Drag to rotate · Scroll to zoom · Right-click to pan
       </div>
     </div>
   );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// DemoStateSync — detects when settings match DEMO_SETTINGS to sync demoActive
-// ─────────────────────────────────────────────────────────────────────────────
-
-function DemoStateSync({
-  settings,
-  onDemoChange,
-}: {
-  settings: Settings;
-  onDemoChange: (active: boolean) => void;
-}) {
-  const isDemo =
-    settings.auraOpacity === DEMO_SETTINGS.auraOpacity &&
-    settings.gridSize === DEMO_SETTINGS.gridSize &&
-    settings.waveSpeed === DEMO_SETTINGS.waveSpeed &&
-    settings.auraEnabled === DEMO_SETTINGS.auraEnabled &&
-    settings.heatmapEnabled === DEMO_SETTINGS.heatmapEnabled;
-
-  const prevRef = useRef(isDemo);
-  useEffect(() => {
-    if (prevRef.current !== isDemo) {
-      prevRef.current = isDemo;
-      onDemoChange(isDemo);
-    }
-  }, [isDemo, onDemoChange]);
-
-  return null;
 }
